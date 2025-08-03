@@ -141,6 +141,16 @@ export default function DashboardPage() {
         return;
       }
 
+      console.log('🚀 Creating booking with data:', {
+        userId: user.uid || user.id,
+        userEmail: user.email,
+        ovenId: selectedOven.id,
+        ovenName: selectedOven.name,
+        title: bookingData.purpose,
+        startTime: bookingData.startTime,
+        endTime: bookingData.endTime,
+      });
+
       await addDoc(collection(db, 'bookings'), {
         userId: user.uid || user.id,
         ovenId: selectedOven.id,
@@ -152,13 +162,21 @@ export default function DashboardPage() {
         updatedAt: new Date(), // Add updatedAt field
       });
 
+      console.log('✅ Booking created successfully');
+
       setShowBookingModal(false);
       setSelectedOven(null);
       setSelectedDate(null);
       loadData();
-    } catch (error) {
-      console.error('Error creating booking:', error);
-      alert('Failed to create booking. Please try again.');
+    } catch (error: any) {
+      console.error('❌ Error creating booking:', error);
+      console.error('❌ Error details:', {
+        message: error?.message,
+        code: error?.code,
+        user: user?.email,
+        oven: selectedOven?.name
+      });
+      alert(`Failed to create booking: ${error?.message || error}`);
     }
   };
 
