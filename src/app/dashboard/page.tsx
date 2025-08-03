@@ -63,7 +63,7 @@ export default function DashboardPage() {
         };
       }) as Booking[];
 
-      // Load all ovens
+      // Load all ovens and filter by status
       const ovensQuery = collection(db, 'ovens');
       const ovensSnapshot = await getDocs(ovensQuery);
       console.log('🔥 Found', ovensSnapshot.docs.length, 'ovens in Firebase');
@@ -82,9 +82,9 @@ export default function DashboardPage() {
           location: data.location || 'Lab',
           createdAt: safeToDate(data.createdAt) || new Date(),
         };
-      }) as Oven[];
+      }).filter(oven => oven.status === 'active') as Oven[]; // Only show active ovens
 
-      // Update booking data with oven names
+      console.log('✅ Filtered to', ovensData.length, 'active ovens');
       const enrichedBookings = bookingsData.map(booking => {
         const oven = ovensData.find(o => o.id === booking.ovenId);
         return {
@@ -255,7 +255,7 @@ export default function DashboardPage() {
                 <AlertCircle className="h-8 w-8 text-orange-600" />
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-500">Available Ovens</p>
-                  <p className="text-2xl font-bold text-gray-900">{ovens.length}</p>
+                  <p className="text-2xl font-bold text-gray-900">{ovens.filter(o => o.status === 'active').length}</p>
                 </div>
               </div>
             </div>
@@ -278,38 +278,63 @@ export default function DashboardPage() {
             {/* Available Ovens */}
             <div className="bg-white rounded-lg shadow">
               <div className="p-6 border-b border-gray-200">
-                <h2 className="text-lg font-medium text-gray-900">Available Ovens</h2>
+                <h2 className="text-lg font-medium text-gray-900">
+                  Available Ovens 
+                  <span className="ml-2 text-sm text-gray-500">({ovens.length} active)</span>
+                </h2>
               </div>
               <div className="p-6">
                 {ovens.length === 0 ? (
                   <p className="text-gray-500 text-center py-8">No ovens available</p>
                 ) : (
                   <div className="space-y-4">
-                    {ovens.map((oven) => (
-                      <div key={oven.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h3 className="text-lg font-medium text-gray-900">{oven.name}</h3>
-                            <p className="text-sm text-gray-500">{oven.description}</p>
-                            <div className="mt-2 text-sm text-gray-600">
-                              <p>Max Temperature: {oven.maxTemperature}°C</p>
-                              <p>Capacity: {oven.capacity}</p>
-                              <p>Location: {oven.location}</p>
+                    {ovens.map((oven) => {
+                      const userActiveBookingsCount = userActiveBookings.length;
+                      const isMaxBookings = userActiveBookingsCount >= 2;
+                      const isMaintenanceOven = oven.status !== 'active';
+                      const isDisabled = isMaxBookings || isMaintenanceOven;
+                      
+                      return (
+                        <div key={oven.id} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="text-lg font-medium text-gray-900">{oven.name}</h3>
+                              <p className="text-sm text-gray-500">{oven.description}</p>
+                              <div className="mt-2 text-sm text-gray-600">
+                                <p>Max Temperature: {oven.maxTemperature}°C</p>
+                                <p>Capacity: {oven.capacity}</p>
+                                <p>Location: {oven.location}</p>
+                                <p className={`font-medium ${oven.status === 'active' ? 'text-green-600' : 'text-orange-600'}`}>
+                                  Status: {oven.status === 'active' ? 'Available' : 'Maintenance'}
+                                </p>
+                              </div>
+                              {isMaxBookings && (
+                                <div className="mt-2 text-sm text-red-600 bg-red-50 px-2 py-1 rounded">
+                                  Maximum bookings reached ({userActiveBookingsCount}/2)
+                                </div>
+                              )}
                             </div>
+                            <button
+                              onClick={() => {
+                                if (!isDisabled) {
+                                  setSelectedOven(oven);
+                                  setShowBookingModal(true);
+                                }
+                              }}
+                              disabled={isDisabled}
+                              className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md ${
+                                isDisabled
+                                  ? 'text-gray-400 bg-gray-200 cursor-not-allowed'
+                                  : 'text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+                              }`}
+                            >
+                              <Plus className="h-4 w-4 mr-1" />
+                              {isMaxBookings ? 'Max Reached' : isMaintenanceOven ? 'Maintenance' : 'Book'}
+                            </button>
                           </div>
-                          <button
-                            onClick={() => {
-                              setSelectedOven(oven);
-                              setShowBookingModal(true);
-                            }}
-                            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            Book
-                          </button>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
