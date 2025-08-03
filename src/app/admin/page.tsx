@@ -7,13 +7,14 @@ import { Oven, Booking, User } from '@/types';
 import { safeToDate } from '@/lib/utils';
 import Navbar from '@/components/Navbar';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { Plus, Edit, Trash2, Users, Calendar, Wrench, AlertTriangle, X, Ban } from 'lucide-react';
+import BookingCalendar from '@/components/BookingCalendar';
+import { Plus, Edit, Trash2, Users, Calendar, Wrench, AlertTriangle, X, Ban, Filter, Search, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { format } from 'date-fns';
+import { format, isAfter, isBefore, startOfDay, endOfDay } from 'date-fns';
 
 export default function AdminPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'ovens' | 'bookings' | 'users'>('ovens');
+  const [activeTab, setActiveTab] = useState<'ovens' | 'bookings' | 'users' | 'calendar'>('bookings');
   const [ovens, setOvens] = useState<Oven[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -22,6 +23,18 @@ export default function AdminPage() {
   const [editingOven, setEditingOven] = useState<Oven | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
+  
+  // New state for enhanced booking management
+  const [bookingFilters, setBookingFilters] = useState({
+    status: 'all', // all, active, completed, cancelled
+    user: 'all',
+    oven: 'all',
+    dateRange: 'all', // all, today, week, month
+    search: ''
+  });
+  const [sortBy, setSortBy] = useState<'date' | 'user' | 'oven' | 'status'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   useEffect(() => {
     loadData();
@@ -149,6 +162,93 @@ export default function AdminPage() {
     }
   };
 
+  // Filter and sort bookings
+  const getFilteredAndSortedBookings = () => {
+    let filteredBookings = [...bookings];
+
+    // Apply filters
+    if (bookingFilters.status !== 'all') {
+      filteredBookings = filteredBookings.filter(b => b.status === bookingFilters.status);
+    }
+
+    if (bookingFilters.user !== 'all') {
+      filteredBookings = filteredBookings.filter(b => b.userId === bookingFilters.user);
+    }
+
+    if (bookingFilters.oven !== 'all') {
+      filteredBookings = filteredBookings.filter(b => b.ovenId === bookingFilters.oven);
+    }
+
+    if (bookingFilters.search) {
+      const searchLower = bookingFilters.search.toLowerCase();
+      filteredBookings = filteredBookings.filter(b => 
+        b.userName.toLowerCase().includes(searchLower) ||
+        b.ovenName.toLowerCase().includes(searchLower) ||
+        b.title.toLowerCase().includes(searchLower) ||
+        b.userEmail.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Apply date range filter
+    const now = new Date();
+    if (bookingFilters.dateRange !== 'all') {
+      switch (bookingFilters.dateRange) {
+        case 'today':
+          filteredBookings = filteredBookings.filter(b => {
+            const bookingDate = startOfDay(b.startTime);
+            const today = startOfDay(now);
+            return bookingDate.getTime() === today.getTime();
+          });
+          break;
+        case 'week':
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          filteredBookings = filteredBookings.filter(b => 
+            isAfter(b.startTime, weekAgo) && isBefore(b.startTime, endOfDay(now))
+          );
+          break;
+        case 'month':
+          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          filteredBookings = filteredBookings.filter(b => 
+            isAfter(b.startTime, monthAgo) && isBefore(b.startTime, endOfDay(now))
+          );
+          break;
+      }
+    }
+
+    // Apply sorting
+    filteredBookings.sort((a, b) => {
+      let compareValue = 0;
+      
+      switch (sortBy) {
+        case 'date':
+          compareValue = a.startTime.getTime() - b.startTime.getTime();
+          break;
+        case 'user':
+          compareValue = a.userName.localeCompare(b.userName);
+          break;
+        case 'oven':
+          compareValue = a.ovenName.localeCompare(b.ovenName);
+          break;
+        case 'status':
+          compareValue = a.status.localeCompare(b.status);
+          break;
+      }
+
+      return sortOrder === 'asc' ? compareValue : -compareValue;
+    });
+
+    return filteredBookings;
+  };
+
+  const handleSortChange = (newSortBy: typeof sortBy) => {
+    if (sortBy === newSortBy) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(newSortBy);
+      setSortOrder('asc');
+    }
+  };
+
   const handleToggleUserRole = async (userId: string, currentIsAdmin: boolean) => {
     const newIsAdmin = !currentIsAdmin;
     
@@ -170,11 +270,14 @@ export default function AdminPage() {
     );
   }
 
+  const filteredBookings = getFilteredAndSortedBookings();
+  
   const stats = {
     totalOvens: ovens.length,
-    availableOvens: ovens.filter(o => o.status === 'active').length, // Changed from 'available' to 'active'
+    availableOvens: ovens.filter(o => o.status === 'active').length,
     activeBookings: bookings.filter(b => b.status === 'active').length,
     totalUsers: users.length,
+    filteredBookings: filteredBookings.length,
   };
 
   return (
@@ -236,16 +339,6 @@ export default function AdminPage() {
             <div className="border-b border-gray-200">
               <nav className="-mb-px flex">
                 <button
-                  onClick={() => setActiveTab('ovens')}
-                  className={`py-4 px-6 text-sm font-medium border-b-2 ${
-                    activeTab === 'ovens'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Ovens ({ovens.length})
-                </button>
-                <button
                   onClick={() => setActiveTab('bookings')}
                   className={`py-4 px-6 text-sm font-medium border-b-2 ${
                     activeTab === 'bookings'
@@ -253,7 +346,30 @@ export default function AdminPage() {
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  Bookings ({bookings.length})
+                  <Calendar className="h-4 w-4 inline mr-2" />
+                  All Bookings ({filteredBookings.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('calendar')}
+                  className={`py-4 px-6 text-sm font-medium border-b-2 ${
+                    activeTab === 'calendar'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Calendar className="h-4 w-4 inline mr-2" />
+                  Calendar View
+                </button>
+                <button
+                  onClick={() => setActiveTab('ovens')}
+                  className={`py-4 px-6 text-sm font-medium border-b-2 ${
+                    activeTab === 'ovens'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Wrench className="h-4 w-4 inline mr-2" />
+                  Ovens ({ovens.length})
                 </button>
                 <button
                   onClick={() => setActiveTab('users')}
@@ -263,6 +379,7 @@ export default function AdminPage() {
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
+                  <Users className="h-4 w-4 inline mr-2" />
                   Users ({users.length})
                 </button>
               </nav>
@@ -359,26 +476,138 @@ export default function AdminPage() {
               {/* Bookings Tab */}
               {activeTab === 'bookings' && (
                 <div>
-                  <h2 className="text-lg font-medium text-gray-900 mb-6">Booking Management</h2>
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-lg font-medium text-gray-900">All Bookings Management</h2>
+                    <div className="text-sm text-gray-500">
+                      Showing {filteredBookings.length} of {bookings.length} bookings
+                    </div>
+                  </div>
+
+                  {/* Filters and Search */}
+                  <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                      {/* Search */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                        <div className="relative">
+                          <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder="User, oven, purpose..."
+                            value={bookingFilters.search}
+                            onChange={(e) => setBookingFilters(prev => ({ ...prev, search: e.target.value }))}
+                            className="pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-full"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Status Filter */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select
+                          value={bookingFilters.status}
+                          onChange={(e) => setBookingFilters(prev => ({ ...prev, status: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="all">All Status</option>
+                          <option value="active">Active</option>
+                          <option value="completed">Completed</option>
+                          <option value="cancelled">Cancelled</option>
+                        </select>
+                      </div>
+
+                      {/* User Filter */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
+                        <select
+                          value={bookingFilters.user}
+                          onChange={(e) => setBookingFilters(prev => ({ ...prev, user: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="all">All Users</option>
+                          {users.map(user => (
+                            <option key={user.uid} value={user.uid}>{user.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Oven Filter */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Oven</label>
+                        <select
+                          value={bookingFilters.oven}
+                          onChange={(e) => setBookingFilters(prev => ({ ...prev, oven: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="all">All Ovens</option>
+                          {ovens.map(oven => (
+                            <option key={oven.id} value={oven.id}>{oven.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Date Range Filter */}
+                    <div className="flex flex-wrap gap-2">
+                      <label className="block text-sm font-medium text-gray-700 mr-2">Date Range:</label>
+                      {['all', 'today', 'week', 'month'].map(range => (
+                        <button
+                          key={range}
+                          onClick={() => setBookingFilters(prev => ({ ...prev, dateRange: range }))}
+                          className={`px-3 py-1 text-sm rounded-md ${
+                            bookingFilters.dateRange === range
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {range.charAt(0).toUpperCase() + range.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            User
+                          <th 
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSortChange('user')}
+                          >
+                            <div className="flex items-center">
+                              User
+                              <ChevronDown className={`ml-1 h-4 w-4 transform ${sortBy === 'user' && sortOrder === 'desc' ? 'rotate-180' : ''}`} />
+                            </div>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Oven
+                          <th 
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSortChange('oven')}
+                          >
+                            <div className="flex items-center">
+                              Oven
+                              <ChevronDown className={`ml-1 h-4 w-4 transform ${sortBy === 'oven' && sortOrder === 'desc' ? 'rotate-180' : ''}`} />
+                            </div>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Date & Time
+                          <th 
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSortChange('date')}
+                          >
+                            <div className="flex items-center">
+                              Date & Time
+                              <ChevronDown className={`ml-1 h-4 w-4 transform ${sortBy === 'date' && sortOrder === 'desc' ? 'rotate-180' : ''}`} />
+                            </div>
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Purpose
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Status
+                          <th 
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSortChange('status')}
+                          >
+                            <div className="flex items-center">
+                              Status
+                              <ChevronDown className={`ml-1 h-4 w-4 transform ${sortBy === 'status' && sortOrder === 'desc' ? 'rotate-180' : ''}`} />
+                            </div>
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Actions
@@ -386,49 +615,134 @@ export default function AdminPage() {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {bookings.map((booking) => (
-                          <tr key={booking.id}>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div>
-                                <div className="text-sm font-medium text-gray-900">{booking.userName}</div>
-                                <div className="text-sm text-gray-500">{booking.userEmail}</div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {booking.ovenName}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <div>
-                                <p>{format(booking.startTime, 'MMM dd, yyyy')}</p>
-                                <p>{format(booking.startTime, 'HH:mm')} - {format(booking.endTime, 'HH:mm')}</p>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <div className="max-w-xs truncate">{booking.purpose}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                booking.status === 'active' ? 'bg-green-100 text-green-800' :
-                                booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                                'bg-red-100 text-red-800'
-                              }`}>
-                                {booking.status}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              {booking.status === 'active' && (
-                                <button
-                                  onClick={() => handleCancelBooking(booking.id)}
-                                  className="text-red-600 hover:text-red-900"
-                                >
-                                  Cancel
-                                </button>
-                              )}
+                        {filteredBookings.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                              No bookings found matching your filters
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          filteredBookings.map((booking) => (
+                            <tr key={booking.id} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div>
+                                  <div className="text-sm font-medium text-gray-900">{booking.userName}</div>
+                                  <div className="text-sm text-gray-500">{booking.userEmail}</div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                {booking.ovenName}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <div>
+                                  <p>{format(booking.startTime, 'MMM dd, yyyy')}</p>
+                                  <p>{format(booking.startTime, 'HH:mm')} - {format(booking.endTime, 'HH:mm')}</p>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <div className="max-w-xs truncate">{booking.title}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                  booking.status === 'active' ? 'bg-green-100 text-green-800' :
+                                  booking.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {booking.status}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                {booking.status === 'active' && (
+                                  <button
+                                    onClick={() => handleCancelBooking(booking.id)}
+                                    className="text-red-600 hover:text-red-900"
+                                  >
+                                    <Ban className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Calendar Tab */}
+              {activeTab === 'calendar' && (
+                <div>
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-lg font-medium text-gray-900">Booking Calendar View</h2>
+                    <div className="text-sm text-gray-500">
+                      Visual overview of all bookings
+                    </div>
+                  </div>
+
+                  {/* Calendar Legend */}
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <h3 className="text-sm font-medium text-gray-700 mb-2">Legend</h3>
+                    <div className="flex flex-wrap gap-4">
+                      <div className="flex items-center">
+                        <div className="w-4 h-4 bg-green-500 rounded mr-2"></div>
+                        <span className="text-sm text-gray-600">Active Booking</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-4 h-4 bg-blue-500 rounded mr-2"></div>
+                        <span className="text-sm text-gray-600">Completed Booking</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-4 h-4 bg-red-500 rounded mr-2"></div>
+                        <span className="text-sm text-gray-600">Cancelled Booking</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Calendar Component Placeholder */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <div className="text-center py-12">
+                      <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Calendar View</h3>
+                      <p className="text-gray-500 mb-4">
+                        Advanced calendar component will be integrated here to show all bookings visually.
+                      </p>
+                      
+                      {/* Simple calendar grid for now */}
+                      <div className="mt-8 max-w-4xl mx-auto">
+                        <div className="grid grid-cols-7 gap-1 text-center text-sm">
+                          <div className="p-2 font-medium text-gray-700">Sun</div>
+                          <div className="p-2 font-medium text-gray-700">Mon</div>
+                          <div className="p-2 font-medium text-gray-700">Tue</div>
+                          <div className="p-2 font-medium text-gray-700">Wed</div>
+                          <div className="p-2 font-medium text-gray-700">Thu</div>
+                          <div className="p-2 font-medium text-gray-700">Fri</div>
+                          <div className="p-2 font-medium text-gray-700">Sat</div>
+                          
+                          {/* Sample calendar days with booking indicators */}
+                          {Array.from({ length: 35 }, (_, i) => {
+                            const day = i - 6 + 1;
+                            const hasBooking = Math.random() > 0.7; // Sample booking distribution
+                            const bookingStatus = ['active', 'completed', 'cancelled'][Math.floor(Math.random() * 3)];
+                            
+                            return (
+                              <div key={i} className="p-2 h-16 border border-gray-100 relative">
+                                {day > 0 && day <= 31 && (
+                                  <div className="text-gray-700">{day}</div>
+                                )}
+                                {hasBooking && day > 0 && day <= 31 && (
+                                  <div className={`absolute bottom-1 left-1 right-1 h-1 rounded ${
+                                    bookingStatus === 'active' ? 'bg-green-500' :
+                                    bookingStatus === 'completed' ? 'bg-blue-500' :
+                                    'bg-red-500'
+                                  }`}></div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
