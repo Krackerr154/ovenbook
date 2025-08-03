@@ -5,7 +5,6 @@ import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndP
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { User } from '@/types';
-import { mockAuthService, mockUsers } from '@/lib/mockData';
 import { safeToDate } from '@/lib/utils';
 
 interface AuthContextType {
@@ -34,22 +33,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isDevelopmentMode = process.env.NEXT_PUBLIC_DEVELOPMENT_MODE === 'true';
-
   useEffect(() => {
-    if (isDevelopmentMode) {
-      // Development mode - use mock data
-      console.log('🧪 Running in development mode with mock data');
-      setLoading(false);
-      // Auto-login with demo user for testing
-      setTimeout(() => {
-        setUser(mockUsers[0]); // Login as John Doe by default
-      }, 1000);
-      return;
-    }
-
-    // Production mode - use Firebase
-    console.log('🔥 Running in production mode with Firebase');
+    // Use Firebase Authentication
+    console.log('🔥 Running with Firebase Authentication');
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
         try {
@@ -82,29 +68,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     });
 
     return () => unsubscribe();
-  }, [isDevelopmentMode]);
+  }, []);
 
   const login = async (email: string, password: string) => {
-    if (isDevelopmentMode) {
-      // Development mode
-      const mockUser = await mockAuthService.login(email, password);
-      setUser(mockUser);
-      return;
-    }
-    
-    // Production mode
+    // Use Firebase Authentication
     await signInWithEmailAndPassword(auth, email, password);
   };
 
   const register = async (email: string, password: string, displayName: string) => {
-    if (isDevelopmentMode) {
-      // Development mode
-      const mockUser = await mockAuthService.register(email, password, displayName);
-      setUser(mockUser);
-      return;
-    }
-    
-    // Production mode
+    // Use Firebase Authentication
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
@@ -119,14 +91,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
 
   const logout = async () => {
-    if (isDevelopmentMode) {
-      // Development mode
-      await mockAuthService.logout();
-      setUser(null);
-      return;
-    }
-    
-    // Production mode
+    // Use Firebase Authentication
     await signOut(auth);
   };
 
